@@ -17,6 +17,7 @@ import { AbsensiHarianNmsa } from './components/AbsensiHarianNmsa';
 import { PettyCashHoldersModal } from './components/PettyCashHoldersModal';
 import { NpwpManager } from './components/NpwpManager';
 import { AccuratePettyCashMapping } from './components/AccuratePettyCashMapping';
+import { isPettyCashSubmission, getPettyCashCustodian, isInvoiceSubmission } from './utils';
 import { 
   isFirebaseConfigured, 
   saveSubmissionToFirestore, 
@@ -186,12 +187,10 @@ export default function App() {
     let updatedReports = [...pettyCashReports];
 
     submissions.forEach((sub) => {
-      const isPC = sub.isPettyCash || 
-                   (sub.jenisPengajuan || '').toLowerCase().includes('petty cash') || 
-                   (sub.jenisPengajuan || '').toLowerCase().includes('kas kecil');
+      const isPC = isPettyCashSubmission(sub);
 
       if (isPC) {
-        const custodianName = (sub.pettyCashCustodian || sub.dibayarkanKepada || 'Suryo Pranoto').trim();
+        const custodianName = getPettyCashCustodian(sub) || 'Suryo Pranoto';
         
         // 1. Ensure custodian is registered in pettyCashHolders
         if (custodianName && !newHoldersList.some(h => h.trim().toLowerCase() === custodianName.toLowerCase())) {
@@ -443,7 +442,7 @@ export default function App() {
   }, [submissions]);
 
   const pettyCashCount = useMemo(() => {
-    return submissions.filter(sub => !!sub.isPettyCash).length;
+    return submissions.filter(sub => isPettyCashSubmission(sub)).length;
   }, [submissions]);
 
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -824,9 +823,9 @@ export default function App() {
     }
 
     // If this submission is a Petty Cash transaction, automatically create/update report for Absen Harian NMSA
-    const isPC = savedSub.isPettyCash || (savedSub.jenisPengajuan || '').toLowerCase().includes('petty cash') || (savedSub.jenisPengajuan || '').toLowerCase().includes('kas kecil');
+    const isPC = isPettyCashSubmission(savedSub);
     if (isPC) {
-      const custodianName = savedSub.pettyCashCustodian || savedSub.dibayarkanKepada || (pettyCashHolders.length > 0 ? pettyCashHolders[0] : 'Suryo Pranoto');
+      const custodianName = getPettyCashCustodian(savedSub) || (pettyCashHolders.length > 0 ? pettyCashHolders[0] : 'Suryo Pranoto');
       const totalExp = savedSub.items ? savedSub.items.reduce((acc, it) => acc + (it.total || 0), 0) : 0;
       const attachedFiles = savedSub.googleDriveFiles || (savedSub as any).files || [];
       const reportFileUrl = savedSub.pettyCashFile?.url || 

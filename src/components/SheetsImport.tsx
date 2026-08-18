@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Submission, SubmissionItem } from '../types';
 import { RefreshCw, Download, Database, Check, AlertTriangle, FileText, Globe } from 'lucide-react';
-import { formatRupiah } from '../utils';
+import { formatRupiah, isPettyCashSubmission, getPettyCashCustodian, isInvoiceSubmission } from '../utils';
 
 interface SheetsImportProps {
   onImportSuccess: (importedSubmissions: Submission[], mergeMode: 'merge' | 'overwrite') => void;
@@ -64,6 +64,9 @@ export const SheetsImport: React.FC<SheetsImportProps> = ({ onImportSuccess, exi
         disetujuiJabatan2: item.disetujuiJabatan2 || 'Direktur Utama',
         dibukukanOleh: item.dibukukanOleh || 'Sri Ekowati',
         dibukukanJabatan: item.dibukukanJabatan || 'Accounting',
+        isPettyCash: isPettyCashSubmission(item),
+        pettyCashCustodian: getPettyCashCustodian(item),
+        isInvoice: isInvoiceSubmission(item),
         items: [subItem],
         createdAt: new Date().toISOString()
       };

@@ -700,3 +700,95 @@ export async function mergeFilesToSinglePdf(files: File[]): Promise<{ bytes: Uin
     mime: 'application/pdf',
   };
 }
+
+/**
+ * Unified helper to check if a submission is Petty Cash across ALL menus & views.
+ * Ensures 100% synchronization between Voucher HO, Accurate Mapping, Workspace Reports, and Dashboard.
+ */
+export function isPettyCashSubmission(sub: any): boolean {
+  if (!sub) return false;
+  if (sub.isPettyCash === true) return true;
+  const jenis = (sub.jenisPengajuan || sub.jenis || '').toLowerCase();
+  if (jenis.includes('petty cash') || jenis.includes('kas kecil') || jenis.includes('pettycash')) return true;
+  const notes = (sub.notes || '').toLowerCase();
+  if (notes.includes('petty cash') || notes.includes('kas kecil') || notes.includes('pettycash')) return true;
+  if (sub.pettyCashCustodian && typeof sub.pettyCashCustodian === 'string' && sub.pettyCashCustodian.trim().length > 0) return true;
+  if (sub.pettyCashFile?.url) return true;
+  const kode = (sub.kode || '').toLowerCase();
+  if (kode.includes('/pc/') || kode.includes('-pc-') || kode.endsWith('/pc') || kode.startsWith('pc-') || kode.includes('bkk-pc')) return true;
+  return false;
+}
+
+/**
+ * Retrieve custodian name safely with fallback to recipient
+ */
+export function getPettyCashCustodian(sub: any): string {
+  if (!sub) return '';
+  if (sub.pettyCashCustodian && typeof sub.pettyCashCustodian === 'string' && sub.pettyCashCustodian.trim()) {
+    return sub.pettyCashCustodian.trim();
+  }
+  if (sub.dibayarkanKepada && typeof sub.dibayarkanKepada === 'string' && sub.dibayarkanKepada.trim()) {
+    return sub.dibayarkanKepada.trim();
+  }
+  return '';
+}
+
+/**
+ * Unified helper to check if a submission is an Invoice across ALL views.
+ */
+export function isInvoiceSubmission(sub: any): boolean {
+  if (!sub) return false;
+  if (typeof sub.isInvoice === 'boolean') return sub.isInvoice;
+  const hasInvoiceFile = !!sub.googleDriveFiles?.some(
+    (f: any) => f.docType === 'invoice_vendor' || 
+         (f.name || '').toLowerCase().includes('invoice') || 
+         (f.name || '').toLowerCase().includes('tagihan')
+  );
+  const isInvoiceNote = (sub.notes || '').toLowerCase().includes('invoice') || 
+                        (sub.notes || '').toLowerCase().includes('tagihan') || 
+                        (sub.notes || '').toLowerCase().includes('inv/');
+  const isInvoiceItem = sub.items?.some((i: any) => 
+    (i.item || '').toLowerCase().includes('invoice') || 
+    (i.keterangan || '').toLowerCase().includes('invoice')
+  );
+  const hasInvoiceNo = Boolean(sub.invoiceNumber && String(sub.invoiceNumber).trim().length > 0);
+  const match = hasInvoiceFile || isInvoiceNote || isInvoiceItem || hasInvoiceNo;
+  if (match) {
+    const isTax = 
+      (sub.jenisPengajuan || '').toLowerCase().includes('pajak') ||
+      (sub.dibayarkanKepada || '').toLowerCase().includes('pajak') ||
+      (sub.dibayarkanKepada || '').toLowerCase().includes('djp') ||
+      (sub.notes || '').toLowerCase().includes('pajak') ||
+      (sub.notes || '').toLowerCase().includes('djp') ||
+      (sub.items || []).some((i: any) => 
+        (i.item || '').toLowerCase().includes('pajak') || 
+        (i.keterangan || '').toLowerCase().includes('pajak')
+      );
+    if (isTax) return false;
+  }
+  return match;
+}
+
+/**
+ * Standard sorting helper for submissions: latest date first, with sequence & ID tiebreakers
+ */
+export function sortSubmissionsDescending<T extends { tanggal?: string; kode?: string; createdAt?: string; id?: string }>(list: T[]): T[] {
+  return [...list].sort((a, b) => {
+    const dateA = a.tanggal || '';
+    const dateB = b.tanggal || '';
+    if (dateA !== dateB) {
+      return dateB.localeCompare(dateA);
+    }
+    const suffixA = a.kode ? parseInt(a.kode.split('/').pop() || '0', 10) : 0;
+    const suffixB = b.kode ? parseInt(b.kode.split('/').pop() || '0', 10) : 0;
+    if (!isNaN(suffixA) && !isNaN(suffixB) && suffixA !== suffixB) {
+      return suffixB - suffixA;
+    }
+    const timeC = a.createdAt || '';
+    const timeD = b.createdAt || '';
+    if (timeC !== timeD) {
+      return timeD.localeCompare(timeC);
+    }
+    return (b.id || '').localeCompare(a.id || '');
+  });
+}

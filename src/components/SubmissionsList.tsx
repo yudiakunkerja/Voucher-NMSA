@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Submission, ActivityLog } from '../types';
-import { formatRupiah, formatDateIndonesian } from '../utils';
+import { formatRupiah, formatDateIndonesian, isPettyCashSubmission, getPettyCashCustodian, isInvoiceSubmission, sortSubmissionsDescending } from '../utils';
 import { Search, Eye, Edit2, Trash2, Calendar, MapPin, DollarSign, Plus, Copy, RefreshCw, Cloud, FileText, Database, History, FileSpreadsheet, CheckCircle, AlertCircle, Printer, Check, ExternalLink, Coins, User, Bell, ChevronDown } from 'lucide-react';
 import { loadActivityLogsFromFirestore, isFirebaseConfigured } from '../firebase';
 
@@ -526,61 +526,20 @@ export const SubmissionsList: React.FC<SubmissionsListProps> = ({
 
   // Invoice calculations and groupings
   const invoiceSubmissions = useMemo(() => {
-    return submissions.filter(sub => {
-      // If the user explicitly set isInvoice (either true or false), we must respect it.
-      if (typeof sub.isInvoice === 'boolean') {
-        return sub.isInvoice;
-      }
-
-      // Heuristic fallback for older documents that don't have isInvoice field
-      const hasInvoiceTag = !!sub.isInvoice;
-      const hasInvoiceFile = !!sub.googleDriveFiles?.some(
-        f => f.docType === 'invoice_vendor' || 
-             (f.name || '').toLowerCase().includes('invoice') || 
-             (f.name || '').toLowerCase().includes('tagihan')
-      );
-      const isInvoiceNote = (sub.notes || '').toLowerCase().includes('invoice') || 
-                            (sub.notes || '').toLowerCase().includes('tagihan') || 
-                            (sub.notes || '').toLowerCase().includes('inv/');
-      const isInvoiceItem = sub.items?.some(i => 
-        (i.item || '').toLowerCase().includes('invoice') || 
-        (i.keterangan || '').toLowerCase().includes('invoice')
-      );
-      
-      const heuristicMatch = hasInvoiceTag || hasInvoiceFile || isInvoiceNote || isInvoiceItem;
-
-      // Exclude tax-related (pajak / djp / direktorat) from heuristic auto-detect unless they are explicitly tagged
-      if (heuristicMatch) {
-        const isTaxRelated = 
-          (sub.jenisPengajuan || '').toLowerCase().includes('pajak') ||
-          (sub.dibayarkanKepada || '').toLowerCase().includes('pajak') ||
-          (sub.dibayarkanKepada || '').toLowerCase().includes('djp') ||
-          (sub.notes || '').toLowerCase().includes('pajak') ||
-          (sub.notes || '').toLowerCase().includes('djp') ||
-          (sub.items || []).some(i => 
-            (i.item || '').toLowerCase().includes('pajak') || 
-            (i.keterangan || '').toLowerCase().includes('pajak')
-          );
-
-        if (isTaxRelated) {
-          return false;
-        }
-      }
-
-      return heuristicMatch;
-    });
+    return submissions.filter(sub => isInvoiceSubmission(sub));
   }, [submissions]);
 
-  // Petty Cash calculations and groupings
+  // Petty Cash calculations and groupings (unified across all views)
   const pettyCashSubmissions = useMemo(() => {
-    return submissions.filter(sub => !!sub.isPettyCash);
+    return submissions.filter(sub => isPettyCashSubmission(sub));
   }, [submissions]);
 
   const availablePettyCashCustodians = useMemo(() => {
     const custodians = new Set<string>();
     pettyCashSubmissions.forEach(sub => {
-      if (sub.pettyCashCustodian) {
-        custodians.add(sub.pettyCashCustodian.trim());
+      const custodian = getPettyCashCustodian(sub);
+      if (custodian) {
+        custodians.add(custodian);
       }
     });
     return Array.from(custodians).sort();
@@ -600,17 +559,19 @@ export const SubmissionsList: React.FC<SubmissionsListProps> = ({
   }, [pettyCashSubmissions]);
 
   const filteredPettyCashSubmissions = useMemo(() => {
-    return pettyCashSubmissions.filter(sub => {
+    const list = pettyCashSubmissions.filter(sub => {
       // 1. Custodian Filter
       if (pettyCashCustodianFilter !== 'All') {
-        if (sub.pettyCashCustodian?.trim() !== pettyCashCustodianFilter.trim()) {
+        const custodianName = getPettyCashCustodian(sub).toLowerCase();
+        const target = pettyCashCustodianFilter.trim().toLowerCase();
+        if (custodianName !== target && !custodianName.includes(target)) {
           return false;
         }
       }
 
       // 2. Month Filter
       if (pettyCashMonthFilter !== 'All') {
-        const parts = sub.tanggal.split('-');
+        const parts = (sub.tanggal || '').split('-');
         const subMonth = parts.length >= 2 ? `${parts[0]}-${parts[1]}` : '';
         if (subMonth !== pettyCashMonthFilter) return false;
       }
@@ -620,6 +581,7 @@ export const SubmissionsList: React.FC<SubmissionsListProps> = ({
         const query = pettyCashSearchQuery.toLowerCase();
         const textToSearch = [
           sub.kode || '',
+          getPettyCashCustodian(sub),
           sub.pettyCashCustodian || '',
           sub.jenisPengajuan || '',
           sub.notes || '',
@@ -630,6 +592,8 @@ export const SubmissionsList: React.FC<SubmissionsListProps> = ({
 
       return true;
     });
+
+    return sortSubmissionsDescending(list);
   }, [pettyCashSubmissions, pettyCashCustodianFilter, pettyCashMonthFilter, pettyCashSearchQuery]);
 
   // Dynamic invoice month list
@@ -648,7 +612,7 @@ export const SubmissionsList: React.FC<SubmissionsListProps> = ({
 
   // Invoice list after active filters applied
   const filteredInvoiceSubmissions = useMemo(() => {
-    return invoiceSubmissions.filter(sub => {
+    const list = invoiceSubmissions.filter(sub => {
       // 1. Month Filter
       if (invoiceMonthFilter !== 'All') {
         const parts = sub.tanggal.split('-');
@@ -678,6 +642,8 @@ export const SubmissionsList: React.FC<SubmissionsListProps> = ({
 
       return true;
     });
+
+    return sortSubmissionsDescending(list);
   }, [invoiceSubmissions, invoiceMonthFilter, invoiceStatusFilter, invoiceSearchQuery]);
 
   // Combined stats for chosen month/filters

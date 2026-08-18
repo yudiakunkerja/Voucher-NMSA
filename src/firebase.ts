@@ -24,6 +24,7 @@ import {
   signInWithPopup
 } from 'firebase/auth';
 import { Submission, SubmissionItem, ActivityLog, NpwpRecord } from './types';
+import { isPettyCashSubmission, getPettyCashCustodian, isInvoiceSubmission } from './utils';
 
 export enum OperationType {
   CREATE = 'create',
@@ -195,14 +196,14 @@ export const mapFirestoreToSubmission = (docId: string, data: any): Submission =
     buktiPembayaran: data.buktiPembayaran || undefined,
 
     // Invoice properties mapping
-    isInvoice: !!data.isInvoice,
+    isInvoice: isInvoiceSubmission(data),
     invoiceNumber: data.invoiceNumber || '',
     invoiceDate: data.invoiceDate || '',
     invoiceAmount: typeof data.invoiceAmount === 'number' ? data.invoiceAmount : undefined,
 
-    // Petty Cash properties mapping
-    isPettyCash: !!data.isPettyCash,
-    pettyCashCustodian: data.pettyCashCustodian || '',
+    // Petty Cash properties mapping (unified across all menus)
+    isPettyCash: isPettyCashSubmission(data),
+    pettyCashCustodian: getPettyCashCustodian(data),
     pettyCashFile: data.pettyCashFile || undefined,
 
     items: mappedItems,
@@ -335,7 +336,7 @@ export const mapSubmissionToFirestore = (
     
     // Double save native fields so pulling it back preserves signatures
     id: sub.id,
-    isInvoice: !!sub.isInvoice,
+    isInvoice: isInvoiceSubmission(sub),
     invoiceNumber: sub.invoiceNumber || '',
     invoiceDate: sub.invoiceDate || '',
     invoiceAmount: typeof sub.invoiceAmount === 'number' ? sub.invoiceAmount : null,
@@ -344,8 +345,8 @@ export const mapSubmissionToFirestore = (
       url: sanitizeUrlForFirestore(sub.buktiPembayaran.url, sub.buktiPembayaran.name || 'Bukti Pembayaran')
     } : null,
 
-    isPettyCash: !!sub.isPettyCash,
-    pettyCashCustodian: sub.pettyCashCustodian || '',
+    isPettyCash: isPettyCashSubmission(sub),
+    pettyCashCustodian: getPettyCashCustodian(sub),
     pettyCashFile: sub.pettyCashFile ? {
       ...sub.pettyCashFile,
       url: sanitizeUrlForFirestore(sub.pettyCashFile.url, sub.pettyCashFile.name || 'Laporan Petty Cash')

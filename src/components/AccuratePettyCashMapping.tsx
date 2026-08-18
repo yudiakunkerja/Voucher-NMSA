@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { AccurateAccount, AccurateMappedTransaction, PettyCashReport, Submission } from '../types';
 import { DEFAULT_ACCURATE_ACCOUNTS, autoMapTransactionToAccurate } from '../data/accurateCoaData';
+import { isPettyCashSubmission, getPettyCashCustodian, sortSubmissionsDescending } from '../utils';
 import { 
   saveAccurateMappingToFirestore, 
   loadAccurateMappingsFromFirestore,
@@ -547,15 +548,10 @@ export function AccuratePettyCashMapping({
     }, 100);
   };
 
-  // Strictly filter submissions to only Petty Cash types
+  // Strictly filter submissions to only Petty Cash types (unified across all views)
   const pettyCashSubmissions = useMemo(() => {
-    return submissions.filter(sub => 
-      sub.isPettyCash || 
-      sub.jenisPengajuan?.toLowerCase().includes('petty cash') || 
-      sub.notes?.toLowerCase().includes('petty cash') ||
-      Boolean(sub.pettyCashCustodian) ||
-      sub.kode?.toLowerCase().includes('pc')
-    );
+    const list = submissions.filter(sub => isPettyCashSubmission(sub));
+    return sortSubmissionsDescending(list);
   }, [submissions]);
 
   // Custodian & Search Filter States for Vouchers
@@ -567,23 +563,24 @@ export function AccuratePettyCashMapping({
     const set = new Set<string>();
     pettyCashHolders.forEach(h => { if (h && h.trim()) set.add(h.trim()); });
     pettyCashSubmissions.forEach(sub => {
-      const c = sub.pettyCashCustodian || sub.dibayarkanKepada;
-      if (c && c.trim()) set.add(c.trim());
+      const c = getPettyCashCustodian(sub);
+      if (c) set.add(c);
     });
     return Array.from(set).sort();
   }, [pettyCashHolders, pettyCashSubmissions]);
 
   // Filtered petty cash submissions for tab 0
   const filteredPettyCashSubmissions = useMemo(() => {
-    return pettyCashSubmissions.filter(sub => {
+    const list = pettyCashSubmissions.filter(sub => {
       if (custodianFilter !== 'All') {
-        const c = (sub.pettyCashCustodian || sub.dibayarkanKepada || '').toLowerCase();
+        const c = getPettyCashCustodian(sub).toLowerCase();
         if (!c.includes(custodianFilter.toLowerCase())) return false;
       }
       if (voucherSearchQuery.trim()) {
         const q = voucherSearchQuery.toLowerCase();
         const text = [
           sub.kode || '',
+          getPettyCashCustodian(sub),
           sub.pettyCashCustodian || '',
           sub.dibayarkanKepada || '',
           sub.jenisPengajuan || '',
@@ -593,6 +590,7 @@ export function AccuratePettyCashMapping({
       }
       return true;
     });
+    return sortSubmissionsDescending(list);
   }, [pettyCashSubmissions, custodianFilter, voucherSearchQuery]);
   // Active Mapping Data
   const [reportTitle, setReportTitle] = useState<string>('Laporan Petty Cash');
