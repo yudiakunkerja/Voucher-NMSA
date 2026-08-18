@@ -9,6 +9,7 @@ interface SubmissionsListProps {
   onSelect: (submission: Submission, initialTab?: 'both' | 'pengajuan' | 'pengeluaran' | 'lampiran' | 'only_invoice_payment') => void;
   onEdit: (submission: Submission) => void;
   onOpenSppdEditor?: (submission: Submission) => void;
+  onOpenSppdManager?: () => void;
   onDelete: (id: string) => void;
   onDuplicate: (submission: Submission) => void;
   onAddNew: () => void;
@@ -24,6 +25,7 @@ export const SubmissionsList: React.FC<SubmissionsListProps> = ({
   onSelect,
   onEdit,
   onOpenSppdEditor,
+  onOpenSppdManager,
   onDelete,
   onDuplicate,
   onAddNew,
@@ -1094,6 +1096,18 @@ export const SubmissionsList: React.FC<SubmissionsListProps> = ({
 
             {/* Action Button Container */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+              {onOpenSppdManager && (
+                <button
+                  onClick={onOpenSppdManager}
+                  id="btn-open-sppd-manager"
+                  className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 hover:border-amber-400 text-amber-900 font-bold rounded-xl transition shadow-3xs cursor-pointer text-xs"
+                  title="Buka Formulir SPPD & Hitung Biaya Perjalanan Dinas"
+                >
+                  <FileText size={14} className="text-amber-700" />
+                  <span>Kelola SPPD Dinas</span>
+                </button>
+              )}
+
               <button
                 onClick={onOpenBuktiTransfer}
                 id="btn-upload-bukti-transfer"

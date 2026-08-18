@@ -33,11 +33,14 @@ import {
   loadNpwpRecordsFromFirestore,
   saveNpwpRecordsToFirestore,
   deleteNpwpRecordFromFirestore,
+  loadSppdRecordsFromFirestore,
+  saveSppdRecordsToFirestore,
+  deleteSppdRecordFromFirestore,
   loadConnectedDrivesFromFirestore,
   startGoogleDriveTokenAutoRefresh,
   ensureValidDriveToken
 } from './firebase';
-import { Database, FileText, CheckSquare, ShieldCheck, Heart, Cloud, Palette, Loader2, ArrowRight, LogIn, Printer, Users, Receipt, FileSpreadsheet, ChevronDown, LogOut, LayoutGrid, Settings, Check, Coins, History, AlertCircle, X } from 'lucide-react';
+import { Database, FileText, CheckSquare, ShieldCheck, Heart, Cloud, Palette, Loader2, ArrowRight, LogIn, Printer, Users, Receipt, FileSpreadsheet, ChevronDown, LogOut, LayoutGrid, Settings, Check, Coins, History, AlertCircle, X, Briefcase } from 'lucide-react';
 
 export default function App() {
   const [theme, setTheme] = useState<'classic' | 'gold-dark' | 'emerald' | 'slate'>(() => {
@@ -102,9 +105,18 @@ export default function App() {
     }
   });
 
+  const [sppdRecords, setSppdRecords] = useState<SPPDRecord[]>(() => {
+    try {
+      const stored = localStorage.getItem('sppd_records_v1');
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
   const [isHoldersModalOpen, setIsHoldersModalOpen] = useState(false);
 
-  // Sync petty cash holders, reports, and npwp records from shared state & Firestore on load
+  // Sync petty cash holders, reports, npwp, and SPPD records from shared state & Firestore on load
   useEffect(() => {
     fetch('/api/shared-state')
       .then(res => res.ok ? res.json() : null)
@@ -127,20 +139,16 @@ export default function App() {
               localStorage.setItem('npwp_records_v1', JSON.stringify(merged));
               return merged;
             });
-          } else {
-            const stored = localStorage.getItem('npwp_records_v1');
-            if (stored) {
-              try {
-                const localRecords = JSON.parse(stored);
-                if (Array.isArray(localRecords) && localRecords.length > 0) {
-                  fetch('/api/shared-state', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ npwpRecords: localRecords })
-                  }).catch(() => {});
-                }
-              } catch (e) {}
-            }
+          }
+          if (data.sppdRecords && Array.isArray(data.sppdRecords) && data.sppdRecords.length > 0) {
+            setSppdRecords(prev => {
+              const map = new Map<string, SPPDRecord>();
+              prev.forEach(r => map.set(r.id, r));
+              data.sppdRecords.forEach((r: SPPDRecord) => map.set(r.id, r));
+              const merged = Array.from(map.values());
+              localStorage.setItem('sppd_records_v1', JSON.stringify(merged));
+              return merged;
+            });
           }
         }
       })
@@ -165,6 +173,26 @@ export default function App() {
         }
       })
       .catch(err => console.warn('Firestore NPWP sync skipped:', err));
+
+    loadSppdRecordsFromFirestore()
+      .then(fsRecords => {
+        if (fsRecords && fsRecords.length > 0) {
+          setSppdRecords(prev => {
+            const map = new Map<string, SPPDRecord>();
+            prev.forEach(r => map.set(r.id, r));
+            fsRecords.forEach(r => map.set(r.id, r));
+            const merged = Array.from(map.values());
+            localStorage.setItem('sppd_records_v1', JSON.stringify(merged));
+            fetch('/api/shared-state', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sppdRecords: merged })
+            }).catch(() => {});
+            return merged;
+          });
+        }
+      })
+      .catch(err => console.warn('Firestore SPPD sync skipped:', err));
 
     // Automatically sync Google Drive connection across the entire app
     loadConnectedDrivesFromFirestore()
@@ -1087,32 +1115,46 @@ export default function App() {
 
   // SPPD Import to Submission handler
   const handleImportSppdToSubmission = (sppd: any) => {
+    // Determine traveler name
+    const travelerName = sppd.namaPekerja || sppd.namaPegawai || '';
+    const dateVal = sppd.tanggalMulai || sppd.tanggalBerangkat || new Date().toISOString().split('T')[0];
+    const destination = sppd.kotaTujuan || '';
+    const purpose = sppd.tujuanPerjalanan || sppd.maksudDinas || '';
+
+    // Concise, clean notes without redundant stacking
+    const cleanNotes = `SPPD No: ${sppd.noSppd} | Tujuan: ${destination}${purpose ? ` | Keperluan: ${purpose}` : ''}`;
+
     // If it's from full SPPDRecord (SppdManager)
-    if (sppd.costItems && Array.isArray(sppd.costItems)) {
-      const subItems = sppd.costItems.map((c: any, index: number) => ({
-        id: `item_${index + 1}_` + Date.now(),
-        no: index + 1,
-        item: `${c.kategori} - ${c.rincian || ''}`,
-        jumlahVolume: '1 Paket',
-        total: c.jumlah || 0,
-        keterangan: `SPPD ${sppd.noSppd} (${sppd.kotaTujuan || ''})`
-      }));
+    if (sppd.costItems && Array.isArray(sppd.costItems) && sppd.costItems.length > 0) {
+      const subItems = sppd.costItems.map((c: any, index: number) => {
+        const itemTitle = c.rincian ? `${c.kategori} - ${c.rincian}` : c.kategori;
+        const volumeStr = c.vol && c.satuan ? `${c.vol} ${c.satuan}` : (c.vol ? `${c.vol}` : '1 Paket');
+        const calculatedTotal = c.jumlah || (c.vol && c.hargaSatuan ? c.vol * c.hargaSatuan : 0);
+        return {
+          id: `item_${index + 1}_` + Date.now(),
+          no: index + 1,
+          item: itemTitle,
+          jumlahVolume: volumeStr,
+          total: calculatedTotal,
+          keterangan: `SPPD ${sppd.noSppd}`
+        };
+      });
 
       const newSppdSubmission: Submission = {
         id: 'sub_' + Date.now(),
         lokasi: 'Lt. 1',
-        tanggal: sppd.tanggalMulai || new Date().toISOString().split('T')[0],
+        tanggal: dateVal,
         jenisPengajuan: 'Biaya Perjalanan Dinas (SPPD)',
         kode: 'HO',
-        dibayarkanKepada: sppd.namaPekerja || sppd.namaPegawai,
+        dibayarkanKepada: travelerName,
         dibayarkanDengan: 'Cek/Transfer',
         status: 'Belum Lunas',
-        notes: `Voucher Biaya Perjalanan Dinas (SPPD) No: ${sppd.noSppd}. Tujuan: ${sppd.kotaTujuan} (${sppd.tanggalMulai} s.d ${sppd.tanggalSelesai}). Maksud Dinas: ${sppd.tujuanPerjalanan || sppd.maksudDinas || ''}`,
+        notes: cleanNotes,
         dibuatOleh: userProfile ? userProfile.fullName : 'Nur Wahyudi',
         disetujuiOleh: sppd.sppdDisetujuiName || 'Harijon',
         diverifikasiOleh: 'Andi Dhiya Salsabila',
         diverifikasiJabatan: 'Keuangan',
-        disetujuiOleh2: sppd.pemberiPerintah || 'H. A. Nursyam Halid',
+        disetujuiOleh2: sppd.pemberiPerintah || sppd.pemberiPerintahName || 'H. A. Nursyam Halid',
         disetujuiJabatan2: sppd.pemberiPerintahJabatan || 'Direktur Utama',
         dibukukanOleh: 'Sri Ekowati',
         dibukukanJabatan: 'Accounting',
@@ -1129,13 +1171,13 @@ export default function App() {
     const newSppdSubmission: Submission = {
       id: 'sub_' + Date.now(),
       lokasi: 'Lt. 1',
-      tanggal: new Date().toISOString().split('T')[0],
+      tanggal: dateVal,
       jenisPengajuan: 'Biaya Perjalanan Dinas (SPPD)',
       kode: 'HO',
-      dibayarkanKepada: sppd.namaPegawai,
+      dibayarkanKepada: travelerName,
       dibayarkanDengan: 'Cek/Transfer',
       status: 'Belum Lunas',
-      notes: `Voucher Biaya Perjalanan Dinas (SPPD) No: ${sppd.noSppd}. Kota Tujuan: ${sppd.kotaTujuan} (${sppd.tanggalBerangkat} s.d ${sppd.tanggalKembali}). Maksud Dinas: ${sppd.maksudDinas}`,
+      notes: cleanNotes,
       dibuatOleh: userProfile ? userProfile.fullName : 'Nur Wahyudi',
       disetujuiOleh: 'Harijon',
       diverifikasiOleh: 'Andi Dhiya Salsabila',
@@ -1145,30 +1187,30 @@ export default function App() {
       dibukukanOleh: 'Sri Ekowati',
       dibukukanJabatan: 'Accounting',
       items: [
-        {
+        ...(sppd.biayaTransport ? [{
           id: 'item_1_' + Date.now(),
           no: 1,
-          item: `Biaya Transportasi & Tiket SPPD (${sppd.kotaTujuan})`,
+          item: `Biaya Transportasi & Tiket (${destination})`,
           jumlahVolume: '1 Paket',
           total: sppd.biayaTransport,
-          keterangan: `Transportasi SPPD ${sppd.noSppd}`
-        },
-        {
+          keterangan: `SPPD ${sppd.noSppd}`
+        }] : []),
+        ...(sppd.uangHarian ? [{
           id: 'item_2_' + Date.now(),
           no: 2,
-          item: `Uang Harian Perjalanan Dinas (${sppd.tanggalBerangkat} s.d ${sppd.tanggalKembali})`,
+          item: `Uang Harian Perjalanan Dinas (${sppd.lamaPerjalanan || 'Dinas'})`,
           jumlahVolume: '1 Paket',
           total: sppd.uangHarian,
-          keterangan: `Uang Harian SPPD ${sppd.noSppd}`
-        },
-        {
+          keterangan: `SPPD ${sppd.noSppd}`
+        }] : []),
+        ...(sppd.biayaPenginapan ? [{
           id: 'item_3_' + Date.now(),
           no: 3,
-          item: `Biaya Akomodasi Hotel (${sppd.kotaTujuan})`,
+          item: `Biaya Akomodasi & Hotel (${destination})`,
           jumlahVolume: '1 Paket',
           total: sppd.biayaPenginapan,
-          keterangan: `Penginapan SPPD ${sppd.noSppd}`
-        }
+          keterangan: `SPPD ${sppd.noSppd}`
+        }] : [])
       ],
       createdAt: new Date().toISOString()
     };
@@ -1747,7 +1789,7 @@ export default function App() {
                     {/* 4. ACCURATE MAPPING */}
                     <button
                       onClick={() => { setView('accurate'); setIsDashboardNavOpen(false); }}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer text-left ${
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer text-left mb-1 ${
                         view === 'accurate' ? 'bg-emerald-900 text-white font-black' : 'text-stone-700 hover:bg-stone-100'
                       }`}
                     >
@@ -1756,6 +1798,22 @@ export default function App() {
                         <span>Pemetaan Akun Accurate</span>
                         <span className={`text-[10px] font-normal ${view === 'accurate' ? 'text-emerald-200' : 'text-stone-400'}`}>
                           Klasifikasi & COA Accurate
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* 5. SURAT PERINTAH PERJALANAN DINAS (SPPD) */}
+                    <button
+                      onClick={() => { setView('sppd'); setIsDashboardNavOpen(false); }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer text-left ${
+                        view === 'sppd' ? 'bg-amber-600 text-white font-black' : 'text-stone-700 hover:bg-stone-100'
+                      }`}
+                    >
+                      <Briefcase size={15} className={view === 'sppd' ? 'text-amber-200' : 'text-amber-600'} />
+                      <div className="flex flex-col">
+                        <span>Formulir & SPPD Dinas</span>
+                        <span className={`text-[10px] font-normal ${view === 'sppd' ? 'text-amber-100' : 'text-stone-400'}`}>
+                          Surat Tugas & Biaya Dinas
                         </span>
                       </div>
                     </button>
@@ -1942,6 +2000,10 @@ export default function App() {
             onOpenSppdEditor={(sub) => {
               try { sessionStorage.setItem('sublist_scrollPos', window.scrollY.toString()); } catch (e) {}
               handleOpenSppdEditor(sub);
+            }}
+            onOpenSppdManager={() => {
+              try { sessionStorage.setItem('sublist_scrollPos', window.scrollY.toString()); } catch (e) {}
+              setView('sppd');
             }}
             onDelete={handleDelete}
             onDuplicate={handleDuplicate}

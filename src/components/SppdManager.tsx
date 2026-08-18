@@ -10,6 +10,12 @@ import {
 import { generateNextSppdNumber, saveSppdNumberUsage } from '../utils/sppdNumbering';
 import { terbilang } from '../lib/terbilang';
 import { 
+  saveSppdRecordsToFirestore, 
+  loadSppdRecordsFromFirestore, 
+  deleteSppdRecordFromFirestore,
+  isFirebaseConfigured
+} from '../firebase';
+import { 
   FileText, 
   Plus, 
   Trash2, 
@@ -31,7 +37,8 @@ import {
   Info,
   Pencil,
   X,
-  Check
+  Check,
+  Cloud
 } from 'lucide-react';
 
 export interface SPPDCostItem {
@@ -122,6 +129,47 @@ export const SppdManager: React.FC<SppdManagerProps> = ({
       return INITIAL_SAMPLES;
     }
   });
+
+  // Sync SPPD records from server and Firestore on load to ensure data is permanent
+  useEffect(() => {
+    // 1. Sync from server
+    fetch('/api/shared-state')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && data.sppdRecords && Array.isArray(data.sppdRecords) && data.sppdRecords.length > 0) {
+          setRecords(prev => {
+            const map = new Map<string, SPPDRecord>();
+            prev.forEach(r => map.set(r.id, r));
+            data.sppdRecords.forEach((r: SPPDRecord) => map.set(r.id, r));
+            const merged = Array.from(map.values());
+            localStorage.setItem('sppd_records_v1', JSON.stringify(merged));
+            return merged;
+          });
+        }
+      })
+      .catch(() => {});
+
+    // 2. Sync from Firestore
+    loadSppdRecordsFromFirestore()
+      .then(fsRecords => {
+        if (fsRecords && fsRecords.length > 0) {
+          setRecords(prev => {
+            const map = new Map<string, SPPDRecord>();
+            prev.forEach(r => map.set(r.id, r));
+            fsRecords.forEach(r => map.set(r.id, r));
+            const merged = Array.from(map.values());
+            localStorage.setItem('sppd_records_v1', JSON.stringify(merged));
+            fetch('/api/shared-state', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sppdRecords: merged })
+            }).catch(() => {});
+            return merged;
+          });
+        }
+      })
+      .catch(err => console.warn('Firestore SPPD sync skipped:', err));
+  }, []);
 
   const [activeTab, setActiveTabInternal] = useState<'create' | 'list' | 'settings'>(() => {
     try {
@@ -333,14 +381,24 @@ export const SppdManager: React.FC<SppdManagerProps> = ({
 
     saveSppdNumberUsage(newRecord.noSppd, tanggalMulai);
 
+    let updatedList: SPPDRecord[];
     if (editingId) {
-      setRecords(records.map(r => r.id === editingId ? newRecord : r));
-      setSaveSuccessMsg(`Data SPPD ${newRecord.noSppd} berhasil diperbarui!`);
+      updatedList = records.map(r => r.id === editingId ? newRecord : r);
+      setSaveSuccessMsg(`Data SPPD ${newRecord.noSppd} berhasil diperbarui & disimpan permanen!`);
     } else {
-      setRecords([newRecord, ...records]);
+      updatedList = [newRecord, ...records];
       setEditingId(newRecord.id);
-      setSaveSuccessMsg(`SPPD Baru ${newRecord.noSppd} berhasil disimpan!`);
+      setSaveSuccessMsg(`SPPD Baru ${newRecord.noSppd} berhasil disimpan ke Cloud & Server!`);
     }
+
+    setRecords(updatedList);
+    localStorage.setItem('sppd_records_v1', JSON.stringify(updatedList));
+    saveSppdRecordsToFirestore(updatedList).catch(() => {});
+    fetch('/api/shared-state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sppdRecords: updatedList })
+    }).catch(() => {});
 
     setIsSaved(true);
     setTimeout(() => setSaveSuccessMsg(null), 3500);
@@ -357,6 +415,13 @@ export const SppdManager: React.FC<SppdManagerProps> = ({
     const updated = records.filter(r => r.id !== id && r.noSppd !== sppdNum);
     setRecords(updated);
     localStorage.setItem('sppd_records_v1', JSON.stringify(updated));
+    deleteSppdRecordFromFirestore(id).catch(() => {});
+    fetch('/api/shared-state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sppdRecords: updated })
+    }).catch(() => {});
+
     setSaveSuccessMsg(`Berkas SPPD ${sppdNum} berhasil dihapus.`);
     if (editingId === id || noSppd === sppdNum) {
       handleNewForm();

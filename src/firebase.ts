@@ -1536,6 +1536,80 @@ export const deleteNpwpRecordFromFirestore = async (id: string): Promise<void> =
   }
 };
 
+// Load SPPD (Surat Perintah Perjalanan Dinas) records from Firestore
+export const loadSppdRecordsFromFirestore = async (): Promise<any[]> => {
+  if (!isFirebaseConfigured() || !firestoreDb) {
+    try {
+      const stored = localStorage.getItem('sppd_records_v1');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  const path = 'sppd_records';
+  try {
+    const snapshot = await getDocs(collection(firestoreDb, path));
+    const list: any[] = [];
+    
+    snapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      if (data && (data.noSppd || data.namaPekerja || data.namaPegawai)) {
+        list.push({
+          id: docSnap.id || data.id,
+          ...data
+        });
+      }
+    });
+    
+    if (list.length > 0) {
+      localStorage.setItem('sppd_records_v1', JSON.stringify(list));
+    }
+    return list;
+  } catch (error) {
+    console.warn('Gagal memuat data SPPD dari Firestore:', error);
+    try {
+      const stored = localStorage.getItem('sppd_records_v1');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  }
+};
+
+// Save all or single SPPD Record to Firestore
+export const saveSppdRecordsToFirestore = async (records: any[]): Promise<void> => {
+  try {
+    localStorage.setItem('sppd_records_v1', JSON.stringify(records));
+  } catch (e) {
+    console.warn('Gagal menyimpan SPPD ke localStorage:', e);
+  }
+
+  if (!isFirebaseConfigured() || !firestoreDb) return;
+
+  const path = 'sppd_records';
+  try {
+    for (const rec of records) {
+      if (rec.id) {
+        await setDoc(doc(firestoreDb, path, rec.id), cleanUndefined(rec));
+      }
+    }
+    console.log(`☁️ ${records.length} SPPD records synced to Firestore.`);
+  } catch (error) {
+    console.warn('Gagal menyimpan SPPD ke Firestore:', error);
+  }
+};
+
+// Delete single SPPD record from Firestore
+export const deleteSppdRecordFromFirestore = async (id: string): Promise<void> => {
+  if (!isFirebaseConfigured() || !firestoreDb) return;
+  try {
+    await deleteDoc(doc(firestoreDb, 'sppd_records', id));
+  } catch (error) {
+    console.warn('Gagal menghapus SPPD dari Firestore:', error);
+  }
+};
+
 // Set stored config dynamically (allows pasting from UI setting panel)
 export const saveAndInitializeFirebaseConfig = (config: any): boolean => {
   if (!config || !config.apiKey || !config.projectId) {

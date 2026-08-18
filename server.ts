@@ -375,6 +375,12 @@ function readState() {
       if (!parsed.attendanceLogs) {
         parsed.attendanceLogs = [];
       }
+      if (!parsed.npwpRecords) {
+        parsed.npwpRecords = [];
+      }
+      if (!parsed.sppdRecords) {
+        parsed.sppdRecords = [];
+      }
       if (parsed.waMethod === undefined) {
         parsed.waMethod = "desktop";
       }
@@ -425,6 +431,8 @@ function readState() {
     signatures: {},
     pettyCashHolders: ["Suryo Pranoto"],
     attendanceLogs: [],
+    npwpRecords: [],
+    sppdRecords: [],
     waMethod: "desktop",
     autoReminderHour: "09:00",
     lastCronPing: "",
@@ -539,6 +547,7 @@ app.post("/api/shared-state", (req, res) => {
       pettyCashHolders, 
       attendanceLogs,
       npwpRecords,
+      sppdRecords,
       waMethod,
       autoReminderHour,
       lastCronPing,
@@ -575,6 +584,7 @@ app.post("/api/shared-state", (req, res) => {
       pettyCashHolders: pettyCashHolders !== undefined ? pettyCashHolders : currentState.pettyCashHolders,
       attendanceLogs: attendanceLogs !== undefined ? attendanceLogs : currentState.attendanceLogs,
       npwpRecords: npwpRecords !== undefined ? npwpRecords : currentState.npwpRecords,
+      sppdRecords: sppdRecords !== undefined ? sppdRecords : currentState.sppdRecords,
       waMethod: waMethod !== undefined ? waMethod : currentState.waMethod,
       autoReminderHour: autoReminderHour !== undefined ? autoReminderHour : currentState.autoReminderHour,
       lastCronPing: lastCronPing !== undefined ? lastCronPing : currentState.lastCronPing,
